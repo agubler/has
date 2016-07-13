@@ -3,7 +3,7 @@ import { Require, Config } from './loader';
 /**
  * The valid return types from a feature test
  */
-export type FeatureTestResult = boolean | string | number;
+export type FeatureTestResult = boolean | string | number | undefined | null;
 
 /**
  * A function that tests for a feature and returns a result
@@ -21,6 +21,11 @@ export const testCache: { [feature: string]: FeatureTestResult } = {};
 export const testFunctions: { [feature: string]: FeatureTest } = {};
 
 /**
+ * valid returns for normalizing resource ids
+ */
+type StringOrNull = string | null;
+
+/**
  * AMD plugin function.
  *
  * Conditional loads modules based on a has feature test value.
@@ -30,7 +35,7 @@ export const testFunctions: { [feature: string]: FeatureTest } = {};
  *                dependency list.
  * @param load Callback to loader that consumes result of plugin demand.
  */
-export function load(resourceId: string, require: Require, load: (value?: any) => void, config?: Config): void {
+export function load(resourceId: string | null, require: Require, load: (value?: any) => void, config?: Config): void {
 	resourceId ? require([ resourceId ], load) : load();
 }
 
@@ -43,31 +48,39 @@ export function load(resourceId: string, require: Require, load: (value?: any) =
  * @param resourceId The id of the module
  * @param normalize Resolves a relative module id into an absolute module id
  */
-export function normalize(resourceId: string, normalize: (moduleId: string) => string): string {
+export function normalize(resourceId: string | null, normalize: (moduleId: string) => string): StringOrNull {
+	if (!resourceId) {
+		return null;
+	}
 	const tokens = resourceId.match(/[\?:]|[^:\?]*/g);
 	let i = 0;
 
-	function get(skip?: boolean): string {
-		const term = tokens[i++];
-		if (term === ':') {
-			// empty string module name, resolves to null
-			return null;
+	function get(skip?: boolean): StringOrNull {
+		if (tokens) {
+			const term = tokens[i++];
+			if (term === ':') {
+				// empty string module name, resolves to null
+				return null;
+			}
+			else {
+				// postfixed with a ? means it is a feature to branch on, the term is the name of the feature
+				if (tokens[i++] === '?') {
+					if (!skip && has(term)) {
+						// matched the feature, get the first value from the options
+						return get();
+					}
+					else {
+						// did not match, get the second value, passing over the first
+						get(true);
+						return get(skip);
+					}
+				}
+				// a module
+				return term;
+			}
 		}
 		else {
-			// postfixed with a ? means it is a feature to branch on, the term is the name of the feature
-			if (tokens[i++] === '?') {
-				if (!skip && has(term)) {
-					// matched the feature, get the first value from the options
-					return get();
-				}
-				else {
-					// did not match, get the second value, passing over the first
-					get(true);
-					return get(skip);
-				}
-			}
-			// a module
-			return term;
+			return null;
 		}
 	}
 
